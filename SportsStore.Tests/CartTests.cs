@@ -68,7 +68,7 @@ namespace SportsStore.Tests {
             target.RemoveLine(p2);
 
             // Assert
-            Assert.Empty(target.Lines.Where(c => c.Product == p2));
+            Assert.DoesNotContain(target.Lines, l => l.Product.ProductID == 1);
             Assert.Equal(2, target.Lines.Count());
         }
 
