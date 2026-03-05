@@ -1,8 +1,14 @@
+using Serilog;
 using Microsoft.EntityFrameworkCore;
 using SportsStore.Models;
 using Microsoft.AspNetCore.Identity;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((ctx, lc) => lc
+    .ReadFrom.Configuration(ctx.Configuration)
+    .Enrich.FromLogContext()
+);
 
 builder.Services.AddControllersWithViews();
 
@@ -37,6 +43,8 @@ builder.Services.AddIdentity<IdentityUser, IdentityRole>()
 
 var app = builder.Build();
 
+Log.Information("Starting SportsStore in {Environment}", app.Environment.EnvironmentName);
+
 if (app.Environment.IsProduction())
 {
     app.UseExceptionHandler("/error");
@@ -50,6 +58,8 @@ app.UseRequestLocalization(opts =>
 });
 
 app.UseStaticFiles();
+
+app.UseSerilogRequestLogging();
 app.UseSession();
 
 app.UseAuthentication();
