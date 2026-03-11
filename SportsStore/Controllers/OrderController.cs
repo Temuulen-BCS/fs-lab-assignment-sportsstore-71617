@@ -1,8 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using SportsStore.Models;
+﻿using System;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using SportsStore.Controllers;
+using SportsStore.Models;
+using SportsStore.Services;
 
 namespace SportsStore.Controllers
 {
@@ -11,12 +15,20 @@ namespace SportsStore.Controllers
         private readonly IOrderRepository repository;
         private readonly Cart cart;
         private readonly ILogger<OrderController> logger;
+        private readonly IPaymentService paymentService;
 
-        public OrderController(IOrderRepository repoService, Cart cartService, ILogger<OrderController> logger)
+        private const string PendingOrderSessionKey = "PendingOrder";
+
+        public OrderController(
+            IOrderRepository repoService,
+            Cart cartService,
+            ILogger<OrderController> logger,
+            IPaymentService paymentService)
         {
             repository = repoService;
             cart = cartService;
             this.logger = logger;
+            this.paymentService = paymentService;
         }
 
         public ViewResult Checkout()
@@ -28,7 +40,7 @@ namespace SportsStore.Controllers
         }
 
         [HttpPost]
-        public IActionResult Checkout(Order order)
+        public async Task<IActionResult> Checkout(Order order)
         {
             logger.LogInformation("Checkout submit received. Items={ItemCount} Total={Total}",
                 cart.Lines.Count(), cart.ComputeTotalValue());
@@ -46,27 +58,85 @@ namespace SportsStore.Controllers
             }
 
             order.Lines = cart.Lines.ToArray();
-
-            logger.LogInformation("Saving order. Customer={Name} Items={ItemCount} Total={Total}",
-                order.Name, order.Lines.Count, cart.ComputeTotalValue());
+            HttpContext.Session.SetString(PendingOrderSessionKey, JsonSerializer.Serialize(order));
 
             try
             {
+                var redirectUrl = await paymentService.CreateCheckoutSessionAsync(order, cart, Request);
+
+                logger.LogInformation("Stripe checkout session created. Redirecting to Stripe. Customer={Name} Items={ItemCount}",
+                    order.Name, order.Lines.Count);
+
+                return Redirect(redirectUrl);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Stripe session creation failed. Customer={Name}", order.Name);
+                return RedirectToAction(nameof(PaymentFailed));
+            }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> PaymentSuccess(string session_id)
+        {
+            if (string.IsNullOrWhiteSpace(session_id))
+                return RedirectToAction(nameof(PaymentFailed));
+
+            var pendingJson = HttpContext.Session.GetString(PendingOrderSessionKey);
+            if (string.IsNullOrWhiteSpace(pendingJson))
+                return RedirectToAction(nameof(PaymentFailed));
+
+            var order = JsonSerializer.Deserialize<Order>(pendingJson);
+            if (order == null)
+                return RedirectToAction(nameof(PaymentFailed));
+
+            try
+            {
+                var verify = await paymentService.VerifyCheckoutSessionAsync(session_id);
+
+                if (!verify.Paid)
+                {
+                    logger.LogWarning("Stripe payment not paid. Status={Status} SessionId={SessionId}", verify.Status, verify.SessionId);
+                    return RedirectToAction(nameof(PaymentFailed));
+                }
+
+                order.PaymentStatus = verify.Status;
+                order.StripeSessionId = verify.SessionId;
+                order.StripePaymentIntentId = verify.PaymentIntentId;
+                order.PaymentAmount = verify.AmountTotal;
+                order.PaymentCurrency = verify.Currency;
+                order.PaidAtUtc = DateTime.UtcNow;
+
                 repository.SaveOrder(order);
 
-                logger.LogInformation("Order saved. OrderId={OrderId}", order.OrderID);
+                logger.LogInformation("Order saved after payment. OrderId={OrderId} SessionId={SessionId}",
+                    order.OrderID, verify.SessionId);
 
                 cart.Clear();
+                HttpContext.Session.Remove(PendingOrderSessionKey);
 
                 return RedirectToPage("/Completed", new { orderId = order.OrderID });
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Checkout failed while saving order. Customer={Name} Items={ItemCount}",
-                    order.Name, order.Lines.Count);
-
-                throw;
+                logger.LogError(ex, "Payment success verification failed. SessionId={SessionId}", session_id);
+                return RedirectToAction(nameof(PaymentFailed));
             }
+        }
+
+        [HttpGet]
+        public IActionResult PaymentCancelled()
+        {
+            logger.LogWarning("Stripe checkout cancelled by user.");
+            HttpContext.Session.Remove(PendingOrderSessionKey);
+            return View();
+        }
+
+        [HttpGet]
+        public IActionResult PaymentFailed()
+        {
+            logger.LogWarning("Stripe payment failed.");
+            return View();
         }
     }
 }

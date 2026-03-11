@@ -7,6 +7,12 @@ namespace SportsStore.Models {
 
         [BindNever]
         public int OrderID { get; set; }
+        public string? PaymentStatus { get; set; }
+        public string? StripeSessionId { get; set; }
+        public string? StripePaymentIntentId { get; set; }
+        public long? PaymentAmount { get; set; }
+        public string? PaymentCurrency { get; set; }
+        public DateTime? PaidAtUtc { get; set; }
         [BindNever]
         public ICollection<CartLine> Lines { get; set; } = new List<CartLine>();
 

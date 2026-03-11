@@ -1,9 +1,16 @@
-using Serilog;
-using Microsoft.EntityFrameworkCore;
-using SportsStore.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
+using SportsStore.Models;
+using SportsStore.Services;
+using Stripe;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddUserSecrets<Program>(optional: true);
+}
 
 builder.Host.UseSerilog((ctx, lc) => lc
     .ReadFrom.Configuration(ctx.Configuration)
@@ -16,10 +23,7 @@ var storeConn = builder.Configuration.GetConnectionString("SportsStoreConnection
 if (string.IsNullOrWhiteSpace(storeConn))
     throw new InvalidOperationException("Missing connection string: SportsStoreConnection");
 
-builder.Services.AddDbContext<StoreDbContext>(opts =>
-{
-    opts.UseSqlServer(storeConn);
-});
+builder.Services.AddDbContext<StoreDbContext>(opts => opts.UseSqlServer(storeConn));
 
 builder.Services.AddScoped<IStoreRepository, EFStoreRepository>();
 builder.Services.AddScoped<IOrderRepository, EFOrderRepository>();
@@ -35,11 +39,19 @@ var identityConn = builder.Configuration.GetConnectionString("IdentityConnection
 if (string.IsNullOrWhiteSpace(identityConn))
     throw new InvalidOperationException("Missing connection string: IdentityConnection");
 
-builder.Services.AddDbContext<AppIdentityDbContext>(options =>
-    options.UseSqlServer(identityConn));
+builder.Services.AddDbContext<AppIdentityDbContext>(options => options.UseSqlServer(identityConn));
 
 builder.Services.AddIdentity<IdentityUser, IdentityRole>()
     .AddEntityFrameworkStores<AppIdentityDbContext>();
+
+builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("Stripe"));
+builder.Services.AddScoped<IPaymentService, StripePaymentService>();
+
+var stripeKey = builder.Configuration["Stripe:SecretKey"];
+if (string.IsNullOrWhiteSpace(stripeKey))
+    throw new InvalidOperationException("Missing Stripe:SecretKey (use user-secrets or environment variable).");
+
+StripeConfiguration.ApiKey = stripeKey;
 
 var app = builder.Build();
 
@@ -58,17 +70,13 @@ app.UseRequestLocalization(opts =>
 });
 
 app.UseStaticFiles();
-
 app.UseSerilogRequestLogging();
 app.UseSession();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
-
-app.MapControllerRoute("catpage",
-    "{category}/Page{productPage:int}",
+app.MapControllerRoute("catpage", "{category}/Page{productPage:int}",
     new { Controller = "Home", action = "Index" });
 
 app.MapControllerRoute("page", "Page{productPage:int}",
@@ -77,8 +85,7 @@ app.MapControllerRoute("page", "Page{productPage:int}",
 app.MapControllerRoute("category", "{category}",
     new { Controller = "Home", action = "Index", productPage = 1 });
 
-app.MapControllerRoute("pagination",
-    "Products/Page{productPage}",
+app.MapControllerRoute("pagination", "Products/Page{productPage}",
     new { Controller = "Home", action = "Index", productPage = 1 });
 
 app.MapDefaultControllerRoute();
