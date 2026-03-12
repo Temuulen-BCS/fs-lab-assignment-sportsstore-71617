@@ -4,6 +4,7 @@ using Moq;
 using SportsStore.Controllers;
 using SportsStore.Models;
 using SportsStore.Services;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace SportsStore.Tests
@@ -11,7 +12,7 @@ namespace SportsStore.Tests
     public class OrderControllerTests
     {
         [Fact]
-        public void Cannot_Checkout_Empty_Cart()
+        public async Task Cannot_Checkout_Empty_Cart()
         {
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
@@ -23,15 +24,18 @@ namespace SportsStore.Tests
                 NullLogger<OrderController>.Instance,
                 paymentMock.Object);
 
-            var result = controller.Checkout(new Order());
+            var result = await controller.Checkout(new Order());
 
             Assert.False(controller.ModelState.IsValid);
             mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
-            paymentMock.Verify(p => p.CreateCheckoutSessionAsync(It.IsAny<Order>(), It.IsAny<Cart>(), It.IsAny<Microsoft.AspNetCore.Http.HttpRequest>()), Times.Never);
+            paymentMock.Verify(p => p.CreateCheckoutSessionAsync(
+                It.IsAny<Order>(),
+                It.IsAny<Cart>(),
+                It.IsAny<Microsoft.AspNetCore.Http.HttpRequest>()), Times.Never);
         }
 
         [Fact]
-        public void Cannot_Checkout_Invalid_ShippingDetails()
+        public async Task Cannot_Checkout_Invalid_ShippingDetails()
         {
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
@@ -46,15 +50,19 @@ namespace SportsStore.Tests
 
             controller.ModelState.AddModelError("Name", "Required");
 
-            var result = controller.Checkout(new Order());
+            var result = await controller.Checkout(new Order());
 
             mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
-            paymentMock.Verify(p => p.CreateCheckoutSessionAsync(It.IsAny<Order>(), It.IsAny<Cart>(), It.IsAny<Microsoft.AspNetCore.Http.HttpRequest>()), Times.Never);
+            paymentMock.Verify(p => p.CreateCheckoutSessionAsync(
+                It.IsAny<Order>(),
+                It.IsAny<Cart>(),
+                It.IsAny<Microsoft.AspNetCore.Http.HttpRequest>()), Times.Never);
+
             Assert.IsType<ViewResult>(result);
         }
 
         [Fact]
-        public void Can_Checkout_And_Redirect_To_Stripe()
+        public async Task Can_Checkout_And_Redirect_To_Stripe()
         {
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
@@ -74,7 +82,7 @@ namespace SportsStore.Tests
                 NullLogger<OrderController>.Instance,
                 paymentMock.Object);
 
-            var result = controller.Checkout(new Order { Name = "Temka" });
+            var result = await controller.Checkout(new Order { Name = "Temka" });
 
             mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
 
