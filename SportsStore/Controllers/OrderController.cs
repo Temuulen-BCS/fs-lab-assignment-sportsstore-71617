@@ -6,16 +6,21 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using SportsStore.Models;
+using SportsStore.Models.DTOs;
 using SportsStore.Services;
+using SportsStore.Services.Messaging;
 
 namespace SportsStore.Controllers
 {
+    [ApiController]
     public class OrderController : Controller
     {
         private readonly IOrderRepository repository;
         private readonly Cart cart;
         private readonly ILogger<OrderController> logger;
         private readonly IPaymentService paymentService;
+        private readonly RabbitMQService _rabbitMQService;
+        private readonly OrderMemoryStore _orderMemoryStore;
 
         private const string PendingOrderSessionKey = "PendingOrder";
 
@@ -23,14 +28,19 @@ namespace SportsStore.Controllers
             IOrderRepository repoService,
             Cart cartService,
             ILogger<OrderController> logger,
-            IPaymentService paymentService)
+            IPaymentService paymentService,
+            RabbitMQService rabbitMQService,
+            OrderMemoryStore orderMemoryStore)
         {
             repository = repoService;
             cart = cartService;
             this.logger = logger;
             this.paymentService = paymentService;
+            _rabbitMQService = rabbitMQService;
+            _orderMemoryStore = orderMemoryStore;
         }
 
+        [HttpGet("/Order/Checkout")]
         public ViewResult Checkout()
         {
             logger.LogInformation("Checkout page opened. Items={ItemCount} Total={Total}",
@@ -39,7 +49,7 @@ namespace SportsStore.Controllers
             return View(new Order());
         }
 
-        [HttpPost]
+        [HttpPost("/Order/Checkout")]
         public async Task<IActionResult> Checkout(Order order)
         {
             logger.LogInformation("Checkout submit received. Items={ItemCount} Total={Total}",
@@ -76,7 +86,7 @@ namespace SportsStore.Controllers
             }
         }
 
-        [HttpGet]
+        [HttpGet("/Order/PaymentSuccess")]
         public async Task<IActionResult> PaymentSuccess(string session_id)
         {
             if (string.IsNullOrWhiteSpace(session_id))
@@ -107,10 +117,31 @@ namespace SportsStore.Controllers
                 order.PaymentCurrency = verify.Currency;
                 order.PaidAtUtc = DateTime.UtcNow;
 
+                order.Status = OrderStatus.Submitted;
+                order.CreatedAtUtc = DateTime.UtcNow;
+                order.UpdatedAtUtc = DateTime.UtcNow;
+                order.CorrelationId = Guid.NewGuid().ToString();
+
                 repository.SaveOrder(order);
 
                 logger.LogInformation("Order saved after payment. OrderId={OrderId} SessionId={SessionId}",
                     order.OrderID, verify.SessionId);
+
+                var message = JsonSerializer.Serialize(new
+                {
+                    OrderId = order.OrderID,
+                    CustomerName = order.Name,
+                    TotalAmount = order.PaymentAmount,
+                    Currency = order.PaymentCurrency,
+                    PaymentStatus = order.PaymentStatus,
+                    CorrelationId = order.CorrelationId,
+                    CreatedAtUtc = order.CreatedAtUtc
+                });
+
+                _rabbitMQService.SendMessage("orderQueue", message);
+
+                logger.LogInformation("RabbitMQ message sent for OrderId={OrderId} Queue={Queue}",
+                    order.OrderID, "orderQueue");
 
                 cart.Clear();
                 HttpContext.Session.Remove(PendingOrderSessionKey);
@@ -123,8 +154,18 @@ namespace SportsStore.Controllers
                 return RedirectToAction(nameof(PaymentFailed));
             }
         }
+        [HttpGet("/api/orders/{id}")]
+        public IActionResult GetOrderById(int id)
+        {
+            var order = _orderMemoryStore.GetById(id);
 
-        [HttpGet]
+            if (order == null)
+                return NotFound();
+
+            return Ok(order);
+        }
+
+        [HttpGet("/Order/PaymentCancelled")]
         public IActionResult PaymentCancelled()
         {
             logger.LogWarning("Stripe checkout cancelled by user.");
@@ -132,11 +173,37 @@ namespace SportsStore.Controllers
             return View();
         }
 
-        [HttpGet]
+        [HttpGet("/Order/PaymentFailed")]
         public IActionResult PaymentFailed()
         {
             logger.LogWarning("Stripe payment failed.");
             return View();
+        }
+
+        [HttpPost("/api/orders")]
+        public IActionResult CreateOrder([FromBody] OrderDto dto)
+        {
+            if (dto == null || dto.Items == null || dto.Items.Count == 0)
+            {
+                logger.LogWarning("API order rejected: no items.");
+                return BadRequest("Order has no items.");
+            }
+
+            var savedOrder = _orderMemoryStore.Add(dto);
+
+            var message = JsonSerializer.Serialize(savedOrder);
+            _rabbitMQService.SendMessage("orderQueue", message);
+
+            logger.LogInformation("Blazor order created and queued. OrderId={OrderId}", savedOrder.Id);
+
+            return Ok(savedOrder);
+        }
+
+        [HttpGet("/api/orders")]
+        public IActionResult GetOrders()
+        {
+            var orders = _orderMemoryStore.GetAll();
+            return Ok(orders);
         }
     }
 }

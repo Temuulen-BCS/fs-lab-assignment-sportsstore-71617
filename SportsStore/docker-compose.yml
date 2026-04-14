@@ -1,15 +1,38 @@
-﻿version: "3"
-services:
-    sportsstore:
-        build: .
-        ports:
-            - "5000:5000"
-        environment:
-            - ASPNETCORE_ENVIRONMENT=Production
-        depends_on:
-            - sqlserver
-    sqlserver:
-        image: "mcr.microsoft.com/mssql/server"
-        environment:
-            SA_PASSWORD: "MyDatabaseSecret123"
-            ACCEPT_EULA: "Y"
+﻿services:
+  sportsstore:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:5000"
+      Stripe__SecretKey: "${STRIPE_SECRET_KEY}"
+      Stripe__PublishableKey: "${STRIPE_PUBLISHABLE_KEY}"
+      ConnectionStrings__SportsStoreConnection: "Server=sqlserver;Database=SportsStore;User Id=sa;Password=MyDatabaseSecret123;TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+      ConnectionStrings__IdentityConnection: "Server=sqlserver;Database=Identity;User Id=sa;Password=MyDatabaseSecret123;TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+      RabbitMQ__HostName: "rabbitmq"
+    depends_on:
+      sqlserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server
+    environment:
+      SA_PASSWORD: "MyDatabaseSecret123"
+      ACCEPT_EULA: "Y"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dataprotection-keys:

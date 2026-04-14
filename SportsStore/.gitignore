@@ -1,0 +1,14 @@
+# Ignore environment variables
+.env
+
+# Build folders
+bin/
+obj/
+
+# Logs
+logs/
+*.log
+
+# User-specific files
+*.user
+*.suo

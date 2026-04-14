@@ -1,0 +1,76 @@
+﻿@page "/cart"
+@rendermode InteractiveServer
+@using CustomerPortal.Services
+@implements IDisposable
+@inject CartState CartState
+
+<h3>Your Cart</h3>
+
+@if (!CartState.Items.Any())
+{
+    <p>Your cart is empty.</p>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Qty</th>
+                <th>Subtotal</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in CartState.Items)
+            {
+                <tr>
+                    <td>@item.Name</td>
+                    <td>@item.Category</td>
+                    <td>€@item.Price</td>
+                    <td>@item.Quantity</td>
+                    <td>€@(item.Price * item.Quantity)</td>
+                    <td>
+                        <button @onclick="() => Increase(item.ProductID)">+</button>
+                        <button @onclick="() => Decrease(item.ProductID)">-</button>
+                        <button @onclick="() => Remove(item.ProductID)">Remove</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <p><b>Total: €@CartState.GetTotal()</b></p>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        CartState.OnChange += StateHasChanged;
+    }
+
+    private void Increase(long productId)
+    {
+        var item = CartState.Items.FirstOrDefault(x => x.ProductID == productId);
+        if (item is null) return;
+
+        CartState.AddItem(new ProductDto
+            {
+                ProductID = item.ProductID,
+                Name = item.Name,
+                Category = item.Category,
+                Price = item.Price
+            });
+    }
+
+    private void Decrease(long productId) => CartState.DecreaseItem(productId);
+
+    private void Remove(long productId) => CartState.RemoveItem(productId);
+
+    public void Dispose()
+    {
+        CartState.OnChange -= StateHasChanged;
+    }
+}
