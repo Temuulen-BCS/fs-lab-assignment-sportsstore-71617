@@ -1,8 +1,10 @@
 ﻿using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SportsStore.Controllers;
@@ -10,7 +12,6 @@ using SportsStore.Models;
 using SportsStore.Services;
 using SportsStore.Services.Messaging;
 using Xunit;
-using Microsoft.Extensions.Configuration;
 
 namespace SportsStore.Tests
 {
@@ -21,7 +22,9 @@ namespace SportsStore.Tests
         {
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
+            var mapperMock = new Mock<IMapper>();
             var cart = new Cart();
+
             var inMemorySettings = new Dictionary<string, string?>
             {
                 ["RabbitMQ:HostName"] = "localhost"
@@ -40,11 +43,12 @@ namespace SportsStore.Tests
                 NullLogger<OrderController>.Instance,
                 paymentMock.Object,
                 rabbitMqService,
-                orderMemoryStore);
+                orderMemoryStore,
+                mapperMock.Object);
 
             controller.ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = new DefaultHttpContext
                 {
                     Session = new TestSession()
                 }
@@ -53,6 +57,8 @@ namespace SportsStore.Tests
             var result = await controller.Checkout(new Order());
 
             Assert.False(controller.ModelState.IsValid);
+            Assert.IsType<ViewResult>(result);
+
             mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
             paymentMock.Verify(p => p.CreateCheckoutSessionAsync(
                 It.IsAny<Order>(),
@@ -65,7 +71,9 @@ namespace SportsStore.Tests
         {
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
+            var mapperMock = new Mock<IMapper>();
             var cart = new Cart();
+
             var inMemorySettings = new Dictionary<string, string?>
             {
                 ["RabbitMQ:HostName"] = "localhost"
@@ -77,6 +85,7 @@ namespace SportsStore.Tests
 
             var rabbitMqService = new RabbitMQService(configuration);
             var orderMemoryStore = new OrderMemoryStore();
+
             cart.AddItem(new Product { ProductID = 1, Name = "P1" }, 1);
 
             var controller = new OrderController(
@@ -85,11 +94,12 @@ namespace SportsStore.Tests
                 NullLogger<OrderController>.Instance,
                 paymentMock.Object,
                 rabbitMqService,
-                orderMemoryStore);
+                orderMemoryStore,
+                mapperMock.Object);
 
             controller.ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = new DefaultHttpContext
                 {
                     Session = new TestSession()
                 }
@@ -99,13 +109,13 @@ namespace SportsStore.Tests
 
             var result = await controller.Checkout(new Order());
 
+            Assert.IsType<ViewResult>(result);
+
             mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
             paymentMock.Verify(p => p.CreateCheckoutSessionAsync(
                 It.IsAny<Order>(),
                 It.IsAny<Cart>(),
                 It.IsAny<HttpRequest>()), Times.Never);
-
-            Assert.IsType<ViewResult>(result);
         }
 
         [Fact]
@@ -113,7 +123,9 @@ namespace SportsStore.Tests
         {
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
+            var mapperMock = new Mock<IMapper>();
             var cart = new Cart();
+
             var inMemorySettings = new Dictionary<string, string?>
             {
                 ["RabbitMQ:HostName"] = "localhost"
@@ -125,6 +137,7 @@ namespace SportsStore.Tests
 
             var rabbitMqService = new RabbitMQService(configuration);
             var orderMemoryStore = new OrderMemoryStore();
+
             cart.AddItem(new Product { ProductID = 1, Name = "P1" }, 1);
 
             paymentMock
@@ -140,11 +153,12 @@ namespace SportsStore.Tests
                 NullLogger<OrderController>.Instance,
                 paymentMock.Object,
                 rabbitMqService,
-                orderMemoryStore);
+                orderMemoryStore,
+                mapperMock.Object);
 
             controller.ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = new DefaultHttpContext
                 {
                     Session = new TestSession()
                 }
@@ -152,10 +166,10 @@ namespace SportsStore.Tests
 
             var result = await controller.Checkout(new Order { Name = "Temka" });
 
-            mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
-
             var redirect = Assert.IsType<RedirectResult>(result);
             Assert.Equal("https://checkout.stripe.com/test-session", redirect.Url);
+
+            mockRepo.Verify(r => r.SaveOrder(It.IsAny<Order>()), Times.Never);
         }
 
         private class TestSession : ISession
@@ -176,7 +190,7 @@ namespace SportsStore.Tests
 
             public void Set(string key, byte[] value) => _sessionStorage[key] = value;
 
-            public bool TryGetValue(string key, out byte[] value) => _sessionStorage.TryGetValue(key, out value);
+            public bool TryGetValue(string key, out byte[] value) => _sessionStorage.TryGetValue(key, out value!);
         }
     }
 }
