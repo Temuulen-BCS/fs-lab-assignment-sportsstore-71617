@@ -8,7 +8,9 @@ using Moq;
 using SportsStore.Controllers;
 using SportsStore.Models;
 using SportsStore.Services;
+using SportsStore.Services.Messaging;
 using Xunit;
+using Microsoft.Extensions.Configuration;
 
 namespace SportsStore.Tests
 {
@@ -20,12 +22,25 @@ namespace SportsStore.Tests
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
             var cart = new Cart();
+            var inMemorySettings = new Dictionary<string, string?>
+            {
+                ["RabbitMQ:HostName"] = "localhost"
+            };
+
+            IConfiguration configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            var rabbitMqService = new RabbitMQService(configuration);
+            var orderMemoryStore = new OrderMemoryStore();
 
             var controller = new OrderController(
                 mockRepo.Object,
                 cart,
                 NullLogger<OrderController>.Instance,
-                paymentMock.Object);
+                paymentMock.Object,
+                rabbitMqService,
+                orderMemoryStore);
 
             controller.ControllerContext = new ControllerContext
             {
@@ -51,13 +66,26 @@ namespace SportsStore.Tests
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
             var cart = new Cart();
+            var inMemorySettings = new Dictionary<string, string?>
+            {
+                ["RabbitMQ:HostName"] = "localhost"
+            };
+
+            IConfiguration configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            var rabbitMqService = new RabbitMQService(configuration);
+            var orderMemoryStore = new OrderMemoryStore();
             cart.AddItem(new Product { ProductID = 1, Name = "P1" }, 1);
 
             var controller = new OrderController(
                 mockRepo.Object,
                 cart,
                 NullLogger<OrderController>.Instance,
-                paymentMock.Object);
+                paymentMock.Object,
+                rabbitMqService,
+                orderMemoryStore);
 
             controller.ControllerContext = new ControllerContext
             {
@@ -86,6 +114,17 @@ namespace SportsStore.Tests
             var mockRepo = new Mock<IOrderRepository>();
             var paymentMock = new Mock<IPaymentService>();
             var cart = new Cart();
+            var inMemorySettings = new Dictionary<string, string?>
+            {
+                ["RabbitMQ:HostName"] = "localhost"
+            };
+
+            IConfiguration configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            var rabbitMqService = new RabbitMQService(configuration);
+            var orderMemoryStore = new OrderMemoryStore();
             cart.AddItem(new Product { ProductID = 1, Name = "P1" }, 1);
 
             paymentMock
@@ -99,7 +138,9 @@ namespace SportsStore.Tests
                 mockRepo.Object,
                 cart,
                 NullLogger<OrderController>.Instance,
-                paymentMock.Object);
+                paymentMock.Object,
+                rabbitMqService,
+                orderMemoryStore);
 
             controller.ControllerContext = new ControllerContext
             {

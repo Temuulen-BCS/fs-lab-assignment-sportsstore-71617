@@ -1,0 +1,60 @@
+﻿@page "/products"
+@rendermode InteractiveServer
+@using System.Net.Http.Json
+@using CustomerPortal.Services
+@inject IHttpClientFactory HttpClientFactory
+@inject CartState CartState
+
+<h3>Products</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <p>@errorMessage</p>
+}
+else if (products == null)
+{
+    <p>Loading...</p>
+}
+else if (!products.Any())
+{
+    <p>No products found.</p>
+}
+else
+{
+    @foreach (var p in products)
+    {
+        <div style="border:1px solid #ccc; padding:10px; margin-bottom:10px;">
+            <h4>@p.Name</h4>
+            <p>Category: @p.Category</p>
+            <p><b>€@p.Price</b></p>
+
+            <button @onclick="() => AddToCart(p)">
+                Add to Cart
+            </button>
+        </div>
+    }
+}
+
+@code {
+    private List<ProductDto>? products;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpClientFactory.CreateClient("api");
+            products = await client.GetFromJsonAsync<List<ProductDto>>("api/products");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void AddToCart(ProductDto product)
+    {
+        CartState.AddItem(product);
+        Console.WriteLine($"Added: {product.Name}");
+    }
+}
