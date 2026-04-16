@@ -2,11 +2,20 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { getOrderById } from '../services/api'
 
+const SERVICE_OPTIONS = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'messageconsumer', label: 'MessageConsumer' },
+  { value: 'inventoryservice', label: 'InventoryService' },
+  { value: 'paymentworkflowservice', label: 'PaymentworkflowService' },
+  { value: 'shippingservice', label: 'ShippingService' },
+]
+
 export default function OrderDetails() {
   const { id } = useParams()
   const [order, setOrder] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selectedService, setSelectedService] = useState('overview')
 
   useEffect(() => {
     loadOrder()
@@ -27,8 +36,12 @@ export default function OrderDetails() {
 
   function getBadgeClass(status) {
     switch ((status || '').toLowerCase()) {
+      case 'completed':
       case 'processed':
+      case 'payment approved':
+      case 'inventory confirmed':
         return 'bg-success'
+      case 'processing':
       case 'pending':
       case 'submitted':
         return 'bg-warning text-dark'
@@ -42,6 +55,20 @@ export default function OrderDetails() {
   function getTotal(items) {
     return (items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0)
   }
+
+  function formatCurrency(value) {
+    return new Intl.NumberFormat('en-IE', {
+      style: 'currency',
+      currency: 'EUR',
+    }).format(value || 0)
+  }
+
+  function getServiceLogs() {
+    const logs = order?.serviceLogs || []
+    return logs.filter((entry) => (entry.service || '').toLowerCase() === selectedService)
+  }
+
+  const serviceLogs = getServiceLogs()
 
   return (
     <div>
@@ -84,25 +111,80 @@ export default function OrderDetails() {
                     <tr key={index}>
                       <td>{item.productName}</td>
                       <td>{item.quantity}</td>
-                      <td>€{item.price.toFixed(2)}</td>
-                      <td>€{(item.price * item.quantity).toFixed(2)}</td>
+                      <td>{formatCurrency(item.price)}</td>
+                      <td>{formatCurrency(item.price * item.quantity)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="table-light">
                     <th colSpan="3" className="text-end">Total</th>
-                    <th>€{getTotal(order.items).toFixed(2)}</th>
+                    <th>{formatCurrency(getTotal(order.items))}</th>
                   </tr>
                 </tfoot>
               </table>
             </div>
 
             <div className="mt-4">
-              <h5>Operational View</h5>
-              <p><strong>Payment Status:</strong> {order.paymentStatus || 'N/A'}</p>
-              <p><strong>Inventory Result:</strong> {order.inventoryStatus || 'N/A'}</p>
-              <p><strong>Shipment Status:</strong> {order.shippingStatus || 'N/A'}</p>
+              <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                <h5 className="mb-0">Operational View</h5>
+                <select
+                  className="form-select w-auto"
+                  value={selectedService}
+                  onChange={(event) => setSelectedService(event.target.value)}
+                >
+                  {SERVICE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="row g-3 mb-3">
+                <div className="col-md-4">
+                  <div className="border rounded p-3 bg-light h-100">
+                    <div className="text-muted small">Inventory</div>
+                    <div className="fw-semibold">{order.inventoryStatus || 'N/A'}</div>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <div className="border rounded p-3 bg-light h-100">
+                    <div className="text-muted small">Payment</div>
+                    <div className="fw-semibold">{order.paymentStatus || 'N/A'}</div>
+                  </div>
+                </div>
+                <div className="col-md-4">
+                  <div className="border rounded p-3 bg-light h-100">
+                    <div className="text-muted small">Shipping</div>
+                    <div className="fw-semibold">
+                      {order.shippingStatus || 'N/A'}
+                      {order.shipmentReference ? ` (${order.shipmentReference})` : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {serviceLogs.length > 0 ? (
+                <div className="list-group">
+                  {serviceLogs.map((entry, index) => (
+                    <div key={`${entry.timestampUtc}-${index}`} className="list-group-item">
+                      <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+                        <strong>{entry.service}</strong>
+                        <span className="badge text-bg-dark">{entry.level}</span>
+                      </div>
+                      <div>{entry.message}</div>
+                      <small className="text-muted">
+                        {new Date(entry.timestampUtc).toLocaleString()}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="alert alert-secondary mb-0">
+                  No log entries are available for this service yet.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -110,3 +192,4 @@ export default function OrderDetails() {
     </div>
   )
 }
+

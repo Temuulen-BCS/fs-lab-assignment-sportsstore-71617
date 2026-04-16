@@ -17,6 +17,45 @@
       rabbitmq:
         condition: service_healthy
 
+  inventoryservice:
+    build:
+      context: ..
+      dockerfile: InventoryService/Dockerfile
+    environment:
+      RabbitMQ__HostName: "rabbitmq"
+      ConnectionStrings__SportsStoreConnection: "Server=sqlserver;Database=SportsStore;User Id=sa;Password=MyDatabaseSecret123;TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+    depends_on:
+      sqlserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  paymentservice:
+    build:
+      context: ..
+      dockerfile: PaymentService/Dockerfile
+    environment:
+      RabbitMQ__HostName: "rabbitmq"
+      ConnectionStrings__SportsStoreConnection: "Server=sqlserver;Database=SportsStore;User Id=sa;Password=MyDatabaseSecret123;TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+    depends_on:
+      sqlserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
+  shippingservice:
+    build:
+      context: ..
+      dockerfile: ShippingService/Dockerfile
+    environment:
+      RabbitMQ__HostName: "rabbitmq"
+      ConnectionStrings__SportsStoreConnection: "Server=sqlserver;Database=SportsStore;User Id=sa;Password=MyDatabaseSecret123;TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+    depends_on:
+      sqlserver:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+
   sqlserver:
     image: mcr.microsoft.com/mssql/server
     environment:

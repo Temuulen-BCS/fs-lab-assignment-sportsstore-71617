@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using AutoMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ namespace SportsStore.Controllers
         private readonly IPaymentService paymentService;
         private readonly RabbitMQService _rabbitMQService;
         private readonly OrderMemoryStore _orderMemoryStore;
+        private readonly IMapper _mapper;
 
         private const string PendingOrderSessionKey = "PendingOrder";
 
@@ -30,7 +32,8 @@ namespace SportsStore.Controllers
             ILogger<OrderController> logger,
             IPaymentService paymentService,
             RabbitMQService rabbitMQService,
-            OrderMemoryStore orderMemoryStore)
+            OrderMemoryStore orderMemoryStore,
+            IMapper mapper)
         {
             repository = repoService;
             cart = cartService;
@@ -38,6 +41,7 @@ namespace SportsStore.Controllers
             this.paymentService = paymentService;
             _rabbitMQService = rabbitMQService;
             _orderMemoryStore = orderMemoryStore;
+            _mapper = mapper;
         }
 
         [HttpGet("/Order/Checkout")]
@@ -127,17 +131,11 @@ namespace SportsStore.Controllers
                 logger.LogInformation("Order saved after payment. OrderId={OrderId} SessionId={SessionId}",
                     order.OrderID, verify.SessionId);
 
-                var message = JsonSerializer.Serialize(new
-                {
-                    OrderId = order.OrderID,
-                    CustomerName = order.Name,
-                    TotalAmount = order.PaymentAmount,
-                    Currency = order.PaymentCurrency,
-                    PaymentStatus = order.PaymentStatus,
-                    CorrelationId = order.CorrelationId,
-                    CreatedAtUtc = order.CreatedAtUtc
-                });
+                var workflowMessage = BuildWorkflowMessage(order);
+                _orderMemoryStore.Upsert(workflowMessage);
+                _orderMemoryStore.AddLog(order.OrderID, "Overview", "Order saved after successful payment and queued for workflow processing.");
 
+                var message = JsonSerializer.Serialize(workflowMessage);
                 _rabbitMQService.SendMessage("orderQueue", message);
 
                 logger.LogInformation("RabbitMQ message sent for OrderId={OrderId} Queue={Queue}",
@@ -154,6 +152,7 @@ namespace SportsStore.Controllers
                 return RedirectToAction(nameof(PaymentFailed));
             }
         }
+
         [HttpGet("/api/orders/{id}")]
         public IActionResult GetOrderById(int id)
         {
@@ -190,10 +189,13 @@ namespace SportsStore.Controllers
             }
 
             var savedOrder = _orderMemoryStore.Add(dto);
+            var workflowMessage = _mapper.Map<OrderWorkflowMessage>(savedOrder);
+            var message = JsonSerializer.Serialize(workflowMessage);
 
-            var message = JsonSerializer.Serialize(savedOrder);
             _rabbitMQService.SendMessage("orderQueue", message);
+            _orderMemoryStore.AddLog(savedOrder.Id, "Overview", "Workflow message published to RabbitMQ.");
 
+            logger.LogInformation("AutoMapper used to map OrderViewDto to OrderWorkflowMessage. OrderId={OrderId}", savedOrder.Id);
             logger.LogInformation("Blazor order created and queued. OrderId={OrderId}", savedOrder.Id);
 
             return Ok(savedOrder);
@@ -204,6 +206,59 @@ namespace SportsStore.Controllers
         {
             var orders = _orderMemoryStore.GetAll();
             return Ok(orders);
+        }
+
+        private static OrderWorkflowMessage BuildWorkflowMessage(Order order)
+        {
+            var items = order.Items.Any()
+                ? order.Items.Select(x => new OrderWorkflowItemMessage
+                {
+                    ProductId = x.ProductId,
+                    ProductName = x.ProductName,
+                    Price = x.UnitPrice,
+                    Quantity = x.Quantity
+                }).ToList()
+                : order.Lines.Select(x => new OrderWorkflowItemMessage
+                {
+                    ProductId = x.Product.ProductID ?? 0,
+                    ProductName = x.Product.Name,
+                    Price = x.Product.Price,
+                    Quantity = x.Quantity
+                }).ToList();
+
+            return new OrderWorkflowMessage
+            {
+                OrderId = order.OrderID,
+                CustomerName = order.Name ?? string.Empty,
+                Address = order.Line1 ?? string.Empty,
+                City = order.City ?? string.Empty,
+                Country = order.Country ?? string.Empty,
+                PaymentStatus = order.PaymentStatus,
+                CorrelationId = order.CorrelationId,
+                CreatedAtUtc = order.CreatedAtUtc,
+                Items = items
+            };
+        }
+
+        private static OrderWorkflowMessage BuildWorkflowMessage(OrderViewDto order)
+        {
+            return new OrderWorkflowMessage
+            {
+                OrderId = order.Id,
+                CustomerName = order.CustomerName,
+                Address = order.Address,
+                City = order.City,
+                Country = order.Country,
+                PaymentStatus = order.PaymentStatus,
+                CreatedAtUtc = order.CreatedAtUtc,
+                Items = order.Items.Select(x => new OrderWorkflowItemMessage
+                {
+                    ProductId = x.ProductId,
+                    ProductName = x.ProductName,
+                    Price = x.Price,
+                    Quantity = x.Quantity
+                }).ToList()
+            };
         }
     }
 }

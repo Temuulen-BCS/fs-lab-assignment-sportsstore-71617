@@ -45,12 +45,12 @@ namespace SportsStore.Services.Messaging
                         basicProperties: null,
                         body: body);
 
-                    Console.WriteLine($"✅ Message sent to RabbitMQ queue '{queue}'.");
+                    Console.WriteLine($" Message sent to RabbitMQ queue '{queue}'.");
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ RabbitMQ send attempt {attempt} failed: {ex.Message}");
+                    Console.WriteLine($" RabbitMQ send attempt {attempt} failed: {ex.Message}");
 
                     if (attempt == maxRetries)
                     {

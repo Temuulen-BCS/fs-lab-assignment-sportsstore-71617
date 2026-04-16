@@ -22,10 +22,14 @@ builder.Host.UseSerilog((ctx, lc) => lc
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
+builder.Services.AddAutoMapper(typeof(Program));
 
 builder.Services.AddHostedService<RabbitMQConsumer>();
 builder.Services.AddSingleton<RabbitMQService>();
 builder.Services.AddSingleton<OrderMemoryStore>();
+builder.Services.AddScoped<InventoryService>();
+builder.Services.AddScoped<PaymentworkflowService>();
+builder.Services.AddScoped<ShippingService>();
 
 builder.Services.Configure<HostOptions>(options =>
 {
